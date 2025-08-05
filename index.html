@@ -114,8 +114,10 @@
         <!-- Chế độ giáo viên -->
         <div id="teacher-view" class="teacher-view">
             <h2 class="text-2xl font-bold mb-4 text-center text-yellow-400">Kết quả của Học sinh</h2>
-            <div class="bg-gray-800 p-4 rounded-lg overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-700">
+            <div id="results-container" class="bg-gray-800 p-4 rounded-lg overflow-x-auto">
+                <!-- Message for loading or no results -->
+                <p id="teacher-message" class="text-center text-gray-400">Đang tải kết quả...</p>
+                <table class="min-w-full divide-y divide-gray-700 hidden" id="results-table">
                     <thead>
                         <tr>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Họ và tên</th>
@@ -196,6 +198,8 @@
         const teacherView = document.getElementById('teacher-view');
         const toggleViewBtn = document.getElementById('toggle-view-btn');
         const resultsTableBody = document.getElementById('results-table-body');
+        const teacherMessage = document.getElementById('teacher-message');
+        const resultsTable = document.getElementById('results-table');
 
         // Khởi tạo Firebase và Firestore
         let db;
@@ -210,13 +214,14 @@
                 db = getFirestore(app);
                 auth = getAuth(app);
                 
-                const __initial_auth_token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : '';
-                if (__initial_auth_token) {
+                // Sửa lỗi bằng cách kiểm tra và sử dụng biến global một cách an toàn
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                     await signInWithCustomToken(auth, __initial_auth_token);
+                    console.log("Firebase initialized and signed in with custom token.");
                 } else {
                     await signInAnonymously(auth);
+                    console.log("Firebase initialized and signed in anonymously.");
                 }
-                console.log("Firebase initialized and authenticated.");
                 setupTeacherView();
             } catch (e) {
                 console.error("Error initializing Firebase:", e);
@@ -274,7 +279,8 @@
             e.preventDefault();
 
             if (!studentNameInput.value.trim()) {
-                alert("Vui lòng nhập họ và tên của bạn!"); // Using alert for simplicity, but a custom modal is better
+                // Using a simple alert, but a custom modal would be better
+                alert("Vui lòng nhập họ và tên của bạn!"); 
                 return;
             }
 
@@ -309,7 +315,7 @@
 
             // Gửi kết quả lên Firestore
             try {
-                if (db) {
+                if (db && auth.currentUser) {
                     const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
                     await addDoc(collection(db, `artifacts/${appId}/public/data/quiz-results`), {
                         name: studentNameInput.value.trim(),
@@ -320,7 +326,7 @@
                     });
                     console.log("Kết quả đã được lưu thành công.");
                 } else {
-                    console.error("Firestore chưa được khởi tạo.");
+                    console.error("Firestore chưa được khởi tạo hoặc người dùng chưa xác thực.");
                 }
             } catch (e) {
                 console.error("Lỗi khi lưu kết quả:", e);
@@ -337,24 +343,48 @@
 
         // Hàm thiết lập chế độ giáo viên
         function setupTeacherView() {
-            if (!db) return;
+            if (!db) {
+                console.error("Không thể thiết lập chế độ giáo viên, Firestore chưa được khởi tạo.");
+                teacherMessage.textContent = 'Lỗi: Không thể kết nối với cơ sở dữ liệu.';
+                return;
+            }
+            console.log("Đang thiết lập chế độ giáo viên và lắng nghe dữ liệu...");
+            teacherMessage.textContent = 'Đang tải kết quả...';
 
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-            const q = query(collection(db, `artifacts/${appId}/public/data/quiz-results`));
+            const resultsRef = collection(db, `artifacts/${appId}/public/data/quiz-results`);
+            const q = query(resultsRef);
             
             onSnapshot(q, (querySnapshot) => {
+                console.log("Nhận được dữ liệu mới từ Firestore.");
                 resultsTableBody.innerHTML = '';
+                const results = [];
                 querySnapshot.forEach((doc) => {
-                    const data = doc.data();
-                    const row = document.createElement('tr');
-                    row.classList.add('bg-gray-800', 'hover:bg-gray-700');
-                    row.innerHTML = `
-                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-300">${data.name}</td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-300">${data.score} / ${data.totalQuestions}</td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-300">${new Date(data.timestamp).toLocaleString('vi-VN')}</td>
-                    `;
-                    resultsTableBody.appendChild(row);
+                    results.push(doc.data());
                 });
+
+                if (results.length > 0) {
+                    resultsTable.classList.remove('hidden');
+                    teacherMessage.classList.add('hidden');
+                    results.forEach(data => {
+                        const row = document.createElement('tr');
+                        row.classList.add('bg-gray-800', 'hover:bg-gray-700');
+                        row.innerHTML = `
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-300">${data.name}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-300">${data.score} / ${data.totalQuestions}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-300">${new Date(data.timestamp).toLocaleString('vi-VN')}</td>
+                        `;
+                        resultsTableBody.appendChild(row);
+                    });
+                } else {
+                    resultsTable.classList.add('hidden');
+                    teacherMessage.classList.remove('hidden');
+                    teacherMessage.textContent = 'Chưa có kết quả nào được nộp.';
+                }
+            }, (error) => {
+                console.error("Lỗi khi nhận dữ liệu từ Firestore:", error);
+                teacherMessage.textContent = 'Lỗi khi tải kết quả.';
+                resultsTable.classList.add('hidden');
             });
         }
 
