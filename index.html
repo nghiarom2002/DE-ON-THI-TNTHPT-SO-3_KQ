@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kiểm tra Online</title>
+    <!-- Thư viện Tailwind CSS để tạo giao diện đẹp và responsive -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #1a202c; /* Dark background color */
+        }
+        .container {
+            max-width: 960px;
+        }
+        .quiz-card {
+            background-color: #2d3748; /* Card background color */
+        }
+        .quiz-card-header {
+            background-color: #4a5568; /* Card header background color */
+        }
+        .submit-button {
+            transition: all 0.3s ease;
+            transform: scale(1);
+        }
+        .submit-button:hover {
+            transform: scale(1.05);
+        }
+        .option-label {
+            transition: background-color 0.2s;
+        }
+        .option-label:hover {
+            background-color: #4a5568;
+        }
+        .results-area {
+            display: none; /* Initially hide the results area with CSS */
+        }
+        .correct-answer {
+            background-color: #10B981; /* Green color for correct answer */
+            color: white;
+            font-weight: bold;
+        }
+        .incorrect-answer {
+            background-color: #EF4444; /* Red color for incorrect answer */
+            color: white;
+            font-weight: bold;
+        }
+        .teacher-view {
+            display: none;
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen p-4">
+    <!-- Khai báo các thư viện Firebase -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithCustomToken, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Khởi tạo các biến global của Firebase
+        window.initializeApp = initializeApp;
+        window.getAuth = getAuth;
+        window.signInWithCustomToken = signInWithCustomToken;
+        window.signInAnonymously = signInAnonymously;
+        window.getFirestore = getFirestore;
+        window.collection = collection;
+        window.addDoc = addDoc;
+        window.onSnapshot = onSnapshot;
+        window.query = query;
+    </script>
+
+    <div class="container mx-auto p-6 rounded-xl shadow-2xl quiz-card text-white">
+        <div class="quiz-card-header p-4 rounded-t-xl mb-6">
+            <h1 class="text-3xl font-bold text-center text-yellow-400">Kiểm tra Online</h1>
+            <p class="text-center text-gray-300 mt-2">Thời gian: 10 phút | Số câu hỏi: 10</p>
+            
+            <!-- Nút chuyển đổi giữa chế độ học sinh và giáo viên -->
+            <div class="flex justify-center mt-4">
+                <button id="toggle-view-btn" class="bg-purple-600 text-white font-bold py-2 px-4 rounded-lg shadow hover:bg-purple-700">
+                    Chuyển sang chế độ Giáo viên
+                </button>
+            </div>
+        </div>
+
+        <!-- Chế độ học sinh -->
+        <div id="student-view" class="student-view">
+            <div class="mb-6">
+                <label for="student-name" class="block text-lg font-bold mb-2">Họ và tên học sinh:</label>
+                <input type="text" id="student-name" placeholder="Nhập họ và tên..." class="w-full p-3 rounded-lg bg-gray-800 text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+
+            <!-- Vùng chứa các câu hỏi có thể cuộn được -->
+            <div class="h-[60vh] overflow-y-auto p-4 rounded-lg bg-gray-800 mb-4">
+                <form id="quiz-form" class="space-y-6">
+                    <!-- Questions will be added here by JavaScript -->
+                </form>
+            </div>
+            
+            <div class="mt-8 flex justify-center">
+                <button id="submit-btn" type="submit" form="quiz-form" class="submit-button bg-blue-600 text-white font-bold py-3 px-8 rounded-lg shadow-lg hover:bg-blue-700">
+                    Nộp Bài
+                </button>
+            </div>
+            
+            <!-- Khu vực hiển thị kết quả cho học sinh -->
+            <div id="results-area" class="mt-8 p-6 text-center rounded-lg bg-gray-700 results-area">
+                <h2 class="text-2xl font-bold mb-4 text-green-400">Kết quả của bạn:</h2>
+                <p class="text-4xl font-extrabold" id="score-display"></p>
+            </div>
+        </div>
+
+        <!-- Chế độ giáo viên -->
+        <div id="teacher-view" class="teacher-view">
+            <h2 class="text-2xl font-bold mb-4 text-center text-yellow-400">Kết quả của Học sinh</h2>
+            <div class="bg-gray-800 p-4 rounded-lg overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-700">
+                    <thead>
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Họ và tên</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Điểm số</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Thời gian nộp</th>
+                        </tr>
+                    </thead>
+                    <tbody id="results-table-body" class="divide-y divide-gray-700">
+                        <!-- Student results will be displayed here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Array containing question data, options, and the correct answer
+        // Bạn có thể thay đổi nội dung tại đây
+        const questions = [
+            {
+                question: "1. CPU là viết tắt của gì?",
+                options: ["Central Power Unit", "Central Processing Unit", "Computer Personal Unit", "Control Program Unit"],
+                answer: "Central Processing Unit"
+            },
+            {
+                question: "2. Phần mềm nào được sử dụng để tạo và chỉnh sửa văn bản?",
+                options: ["Microsoft Excel", "Adobe Photoshop", "Microsoft Word", "Google Chrome"],
+                answer: "Microsoft Word"
+            },
+            {
+                question: "3. Thẻ nhớ SD được dùng để làm gì?",
+                options: ["Lưu trữ dữ liệu", "Phát nhạc", "Kết nối Internet", "In tài liệu"],
+                answer: "Lưu trữ dữ liệu"
+            },
+            {
+                question: "4. Mạng Internet đầu tiên được phát triển bởi ai?",
+                options: ["NASA", "ARPA", "Microsoft", "Apple"],
+                answer: "ARPA"
+            },
+            {
+                question: "5. Ngôn ngữ lập trình nào phổ biến nhất cho phát triển web?",
+                options: ["Java", "Python", "JavaScript", "C++"],
+                answer: "JavaScript"
+            },
+            {
+                question: "6. Để thoát khỏi một chương trình bị treo, ta nhấn tổ hợp phím nào trên Windows?",
+                options: ["Ctrl + Shift + Esc", "Alt + F4", "Ctrl + Alt + Delete", "Windows + D"],
+                answer: "Ctrl + Shift + Esc"
+            },
+            {
+                question: "7. Đâu không phải là một loại trình duyệt web?",
+                options: ["Mozilla Firefox", "Microsoft Excel", "Google Chrome", "Safari"],
+                answer: "Microsoft Excel"
+            },
+            {
+                question: "8. Kí hiệu của bộ nhớ truy cập ngẫu nhiên là gì?",
+                options: ["ROM", "HDD", "SSD", "RAM"],
+                answer: "RAM"
+            },
+            {
+                question: "9. Chức năng chính của một hệ điều hành là gì?",
+                options: ["Chơi trò chơi", "Quản lý phần cứng và phần mềm", "Soạn thảo văn bản", "Vẽ tranh"],
+                answer: "Quản lý phần cứng và phần mềm"
+            },
+            {
+                question: "10. Nút bấm nào dùng để lưu file trong hầu hết các ứng dụng?",
+                options: ["Ctrl + P", "Ctrl + O", "Ctrl + S", "Ctrl + V"],
+                answer: "Ctrl + S"
+            }
+        ];
+
+        const quizForm = document.getElementById('quiz-form');
+        const resultsArea = document.getElementById('results-area');
+        const scoreDisplay = document.getElementById('score-display');
+        const submitBtn = document.getElementById('submit-btn');
+        const studentNameInput = document.getElementById('student-name');
+        const studentView = document.getElementById('student-view');
+        const teacherView = document.getElementById('teacher-view');
+        const toggleViewBtn = document.getElementById('toggle-view-btn');
+        const resultsTableBody = document.getElementById('results-table-body');
+
+        // Khởi tạo Firebase và Firestore
+        let db;
+        let auth;
+
+        // Hàm khởi tạo Firebase
+        async function initializeFirebase() {
+            try {
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                
+                const __initial_auth_token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : '';
+                if (__initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                console.log("Firebase initialized and authenticated.");
+                setupTeacherView();
+            } catch (e) {
+                console.error("Error initializing Firebase:", e);
+                // Xử lý lỗi một cách nhẹ nhàng mà không làm gián đoạn ứng dụng
+            }
+        }
+
+        // Hàm để tạo và hiển thị câu hỏi
+        function renderQuestions() {
+            quizForm.innerHTML = ''; // Clear previous questions
+            questions.forEach((q, index) => {
+                const questionElement = document.createElement('div');
+                questionElement.classList.add('p-4', 'rounded-lg', 'bg-gray-700', 'shadow-md');
+                questionElement.innerHTML = `
+                    <p class="font-bold text-lg mb-4">${q.question}</p>
+                `;
+
+                // Xáo trộn thứ tự các đáp án
+                const shuffledOptions = shuffleArray(q.options);
+                shuffledOptions.forEach(option => {
+                    const optionContainer = document.createElement('div');
+                    optionContainer.classList.add('flex', 'items-center', 'my-2');
+                    
+                    const input = document.createElement('input');
+                    input.type = 'radio';
+                    input.name = `question-${index}`;
+                    input.value = option;
+                    input.id = `q${index}-${option.replace(/\s/g, '-')}`;
+                    input.classList.add('form-radio', 'h-4', 'w-4', 'text-blue-600', 'cursor-pointer', 'mr-2');
+
+                    const label = document.createElement('label');
+                    label.htmlFor = input.id;
+                    label.textContent = option;
+                    label.classList.add('flex-grow', 'p-2', 'rounded-md', 'cursor-pointer', 'option-label');
+
+                    optionContainer.appendChild(input);
+                    optionContainer.appendChild(label);
+                    questionElement.appendChild(optionContainer);
+                });
+                quizForm.appendChild(questionElement);
+            });
+        }
+
+        // Hàm xáo trộn mảng (Fisher-Yates shuffle)
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        // Hàm xử lý khi form được nộp
+        quizForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            if (!studentNameInput.value.trim()) {
+                alert("Vui lòng nhập họ và tên của bạn!"); // Using alert for simplicity, but a custom modal is better
+                return;
+            }
+
+            let score = 0;
+            const studentAnswers = {};
+
+            questions.forEach((q, index) => {
+                const selectedOption = document.querySelector(`input[name="question-${index}"]:checked`);
+                const studentAnswer = selectedOption ? selectedOption.value : "Không trả lời";
+                
+                if (selectedOption && selectedOption.value === q.answer) {
+                    score++;
+                }
+
+                studentAnswers[q.question] = {
+                    selected: studentAnswer,
+                    correct: q.answer
+                };
+
+                // Vô hiệu hóa và tô màu đáp án
+                const radioButtons = document.querySelectorAll(`input[name="question-${index}"]`);
+                radioButtons.forEach(radio => radio.disabled = true);
+                const allOptions = document.querySelectorAll(`input[name="question-${index}"] + label`);
+                allOptions.forEach(label => {
+                    if (label.textContent.trim() === q.answer.trim()) {
+                        label.classList.add('correct-answer');
+                    } else if (selectedOption && selectedOption.value === label.textContent.trim()) {
+                        label.classList.add('incorrect-answer');
+                    }
+                });
+            });
+
+            // Gửi kết quả lên Firestore
+            try {
+                if (db) {
+                    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                    await addDoc(collection(db, `artifacts/${appId}/public/data/quiz-results`), {
+                        name: studentNameInput.value.trim(),
+                        score: score,
+                        totalQuestions: questions.length,
+                        timestamp: new Date().toISOString(),
+                        answers: studentAnswers,
+                    });
+                    console.log("Kết quả đã được lưu thành công.");
+                } else {
+                    console.error("Firestore chưa được khởi tạo.");
+                }
+            } catch (e) {
+                console.error("Lỗi khi lưu kết quả:", e);
+            }
+
+            // Hiển thị kết quả cho học sinh
+            scoreDisplay.textContent = `${score} / ${questions.length}`;
+            resultsArea.style.display = 'block';
+            
+            // Vô hiệu hóa form sau khi nộp
+            submitBtn.disabled = true;
+            submitBtn.classList.add('opacity-50', 'cursor-not-allowed');
+        });
+
+        // Hàm thiết lập chế độ giáo viên
+        function setupTeacherView() {
+            if (!db) return;
+
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+            const q = query(collection(db, `artifacts/${appId}/public/data/quiz-results`));
+            
+            onSnapshot(q, (querySnapshot) => {
+                resultsTableBody.innerHTML = '';
+                querySnapshot.forEach((doc) => {
+                    const data = doc.data();
+                    const row = document.createElement('tr');
+                    row.classList.add('bg-gray-800', 'hover:bg-gray-700');
+                    row.innerHTML = `
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-300">${data.name}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-300">${data.score} / ${data.totalQuestions}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-300">${new Date(data.timestamp).toLocaleString('vi-VN')}</td>
+                    `;
+                    resultsTableBody.appendChild(row);
+                });
+            });
+        }
+
+        // Xử lý nút chuyển đổi chế độ
+        toggleViewBtn.addEventListener('click', () => {
+            const isTeacherView = teacherView.style.display === 'block';
+            if (isTeacherView) {
+                studentView.style.display = 'block';
+                teacherView.style.display = 'none';
+                toggleViewBtn.textContent = 'Chuyển sang chế độ Giáo viên';
+            } else {
+                studentView.style.display = 'none';
+                teacherView.style.display = 'block';
+                toggleViewBtn.textContent = 'Chuyển sang chế độ Học sinh';
+            }
+        });
+
+        // Khởi chạy ứng dụng
+        window.addEventListener('load', () => {
+            initializeFirebase();
+            renderQuestions();
+        });
+
+    </script>
+</body>
+</html>
